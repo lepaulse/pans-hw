@@ -1,0 +1,131 @@
+# SPDX-License-Identifier: Apache-2.0
+# ci/matrix.toml: the verification matrix. The single source of truth for which builds exist and what runs on
+# them. ci/matrix.py validates it and emits build/matrix.mk for make; ci/run.py runs a tier as a job graph.
+#
+# [config.<name>]   a build the RTL must support: lint-clean, and every job of a tier passes on it
+# [refused.<name>]  a build the package generator must refuse (a silent acceptance is a failure)
+# [tier.<name>]     the jobs a tier runs, on every config
+# asic_period_ns    optional: the target clock period of the ASIC PPA flow (make asic-<cfg>, power-<cfg>,
+#                   asic-stream-<cfg>, power-stream-<cfg>) for that config; the configs without one have no ASIC run
+# asic_period_ns_asap7
+#                   optional: the same on ASAP7, in ns (the same targets with ASIC_PLATFORM=asap7)
+# stream            optional, "supported" (default) or "refused": a [config] the stream units (STREAM.md) cannot
+#                   implement, which gen_pkg --stream must refuse. Its stream unit jobs (lint-, sim-dec-stream,
+#                   lint-, sim-enc-stream, sim-stream-rt) are replaced by one stream-refuse job that passes iff the
+#                   generator refuses it, with its reason in the log (make stream-refuse-<cfg>).
+# symmetric_alphabet
+#                   optional boolean, default false: true builds the symmetric alphabet -(2^(SYMBOL_WIDTH-1) - 1) ..
+#                   2^(SYMBOL_WIDTH-1) - 1 (-DPANS_SYMMETRIC_ALPHABET=1; SPEC.md §1, contract version 3): SYMBOL_MIN
+#                   owns the slots below C(SYMBOL_MIN + 1), and the S-bit input -2^(SYMBOL_WIDTH-1) is outside the
+#                   alphabet and escapes. Part of the build (CONFIG_ID hashes it; pans_pkg SYMMETRIC_ALPHABET).
+# The keys est_frac, est_shift, est_m0, est_mfloor, est_k and est_delay are refused: the scale estimator is not
+# part of the build (contract version 4, SPEC.md §4). ref/pans1_config.h refuses the PANS_EST_* macros.
+#
+# Every [config] must be accepted by ref/gen_pkg.cpp and every [refused] build refused (make pkg, make refuse).
+
+[config.p8s6]
+precision    = 8
+symbol_width = 6
+escape_slots = 1
+why          = "the smallest config that exercises every path; the default of make sim"
+
+[config.p16s16]
+precision    = 16
+symbol_width = 16
+escape_slots = 1
+why          = "M = 2^16, E = 1, int16 symbols"
+asic_period_ns = 5.0   # the period of the quoted PPA (SPEC.md §7), relaxed: both cores reach a higher Fmax there
+
+[config.p8s8]
+precision    = 8
+symbol_width = 8
+escape_slots = 1
+why          = "SYMBOL_WIDTH = PRECISION, the widest alphabet allowed"
+asic_period_ns = 3.0   # the period of the quoted PPA (SPEC.md §7)
+
+[config.p12s8]
+precision    = 12
+symbol_width = 8
+escape_slots = 1
+why          = "M = 2^12 over int8 symbols"
+asic_period_ns = 3.0   # the period of the quoted PPA (SPEC.md §7, STREAM.md §4)
+asic_period_ns_asap7 = 1.0   # the period of the quoted ASAP7 PPA (SPEC.md §7.5, STREAM.md §4.6)
+
+[config.p12s8sym]
+precision    = 12
+symbol_width = 8
+escape_slots = 1
+symmetric_alphabet = true
+why          = "symmetric int8 alphabet, -127..127; -128 escapes"
+asic_period_ns = 3.0   # the period of the quoted PPA (SPEC.md §7, STREAM.md §4)
+
+[config.p12s9]
+precision    = 12
+symbol_width = 9
+escape_slots = 1
+why          = "M = 2^12 over int9 symbols"
+asic_period_ns = 3.0   # the matrix's target period for make asic-p12s9; SPEC.md §7 quotes no PPA for p12s9
+
+[config.p9s9]
+precision    = 9
+symbol_width = 9
+escape_slots = 1
+why          = "an odd precision with SYMBOL_WIDTH = PRECISION (int9 residuals)"
+asic_period_ns = 3.0   # the period of the quoted PPA (SPEC.md §7)
+
+[config.p16s8]
+precision    = 16
+symbol_width = 8
+escape_slots = 1
+# Many coded slots lie outside [C(MIN), C(MAX + 1)), owned by MIN and MAX (SPEC.md §1; make inverse-p16s8 counts them,
+# SPEC.md §6)
+why          = "narrow alphabet at full precision: the decoder's clamp to MIN / MAX is common"
+
+[config.p12s10]
+precision    = 12
+symbol_width = 10
+escape_slots = 1
+why          = "widths that are not powers of two"
+
+[config.p8s6e3]
+precision    = 8
+symbol_width = 6
+escape_slots = 3
+why          = "ESCAPE_SLOTS > 1, not a power of two"
+stream       = "refused"  # the stream encoder's escape push (f = E) is a shift: E must be a power of two
+
+[config.p4s4]
+precision    = 4
+symbol_width = 4
+escape_slots = 1
+why          = "smallest accepted: the least P, SW with VF <= P and SW >= 4; E = 1 only (TAIL_MAX = 2^(P-1) - 1)"
+asic_period_ns = 3.0   # the period of the quoted PPA (SPEC.md §7), relaxed: both cores reach a higher Fmax there
+
+[refused.p3s2]
+precision    = 3
+symbol_width = 2
+escape_slots = 1
+why          = "VF = 4 > P = 3, and SW = 2 < SCALE_MAN_WIDTH + 1 = 4 (the decoder's dividend width)"
+
+[refused.p8s9]
+precision    = 8
+symbol_width = 9
+escape_slots = 1
+why          = "SYMBOL_WIDTH > PRECISION"
+
+# Jobs: pkg (generate the package), lint (Verilator -Wall on both cores), sim (directed encode/decode test
+# against the C++ reference), inverse (ref/test_inverse.cpp: the exhaustive check of the decoder algorithm and
+# of C on the C++ reference), stream-ref (ref/test_stream.cpp: the stream model's self-test and its DPI,
+# STREAM.md), lint-dec-stream / lint-enc-stream (Verilator -Wall on a stream unit), sim-dec-stream /
+# sim-enc-stream (a stream unit against the stream model, seeds 1 2 3), sim-stream-rt (the RTL round trip
+# encoder -> array -> decoder, seeds 1 2 3), refuse (the generator refuses a [refused] build), guard (a C++
+# reference built for another config is rejected by the testbench).
+[tier.smoke]
+why  = "every commit (post-commit hook)"
+jobs = ["pkg", "lint", "sim", "inverse", "stream-ref", "lint-dec-stream", "sim-dec-stream", "lint-enc-stream",
+        "sim-enc-stream", "sim-stream-rt", "refuse", "guard"]
+
+[tier.full]
+why  = "nightly"
+jobs = ["pkg", "lint", "sim", "inverse", "stream-ref", "lint-dec-stream", "sim-dec-stream", "lint-enc-stream",
+        "sim-enc-stream", "sim-stream-rt", "refuse", "guard"]

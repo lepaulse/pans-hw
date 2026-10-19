@@ -1,0 +1,5 @@
+# Everything generated: per-config packages, simulators, logs, proofs, CI runs
+/build/
+/ci/runs/
+__pycache__/
+

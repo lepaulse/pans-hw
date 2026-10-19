@@ -1,0 +1,10 @@
+#!/bin/sh
+# post-commit: runs the smoke tier on the new commit in the background, in build/ci/worktree, so the working
+# tree stays free. Results: `ci/run.py --status`, and ci/runs/<run>/summary.md. Installed by `make ci-hooks`.
+repo=$(git rev-parse --show-toplevel) || exit 0
+# git sets these for hooks; the CI worktree must not inherit the main checkout's index.
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX
+sha=$(git rev-parse HEAD) || exit 0
+mkdir -p "$repo/build/ci"
+nohup python3 "$repo/ci/run.py" --tier smoke --commit "$sha" --quiet >> "$repo/build/ci/hook.log" 2>&1 &
+exit 0

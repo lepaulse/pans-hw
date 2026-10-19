@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+# ORFS design config for the ASIC PPA flow, instantiated per run by the Makefile's orfs_flow (make asic-<cfg>,
+# asic-stream-<cfg>): @TOP@, @FILES@ (the RTL, container paths), @PARAMS@ (the top's parameters, "NAME VALUE ..."),
+# @KEEP@ (modules kept through synthesis), @PLATFORM@ (the Makefile's ASIC_PLATFORM), @PERIOD@ and @WORK@ are
+# replaced. Paths are inside the container: hw/ is mounted at /work.
+export DESIGN_NAME          = @TOP@
+export PLATFORM             = @PLATFORM@
+export SYNTH_HDL_FRONTEND   = slang
+export VERILOG_FILES        = @FILES@
+export VERILOG_INCLUDE_DIRS = /work/rtl
+export VERILOG_TOP_PARAMS   = @PARAMS@
+# A kept module (the stream units inside their timing wrappers) is synthesized on its own, and its cells carry its
+# instance's prefix through place and route, so its area and power can be reported apart from the wrapper's.
+export SYNTH_KEEP_MODULES   = @KEEP@
+export SDC_FILE             = /work/ppa/asic/constraint.sdc
+# Target period from ci/matrix.toml in the platform libraries' time unit (the Makefile's ASIC_TIME_UNIT_<platform>):
+# area and slack are reported at this timing pressure.
+export CLOCK_PERIOD         = @PERIOD@
+export CORE_UTILIZATION     = 40
+# Adders stay generic logic for ABC to optimize; the platform's default map turns every adder into a
+# ripple-carry FA/HA chain, which dominated the critical path. Fixed for every run.
+export ADDER_MAP_FILE       :=
+# No formal equivalence check of the resized netlist: on multiplier-heavy p16s16 netlists its SAT solve runs
+# for hours. make power-<cfg> simulates the final netlist against the C++ reference instead.
+export LEC_CHECK            = 0
+export WORK_HOME            = @WORK@
+# ASAP7 at its typical corner: the RVT TT libraries (0.7 V, 25 C) instead of the platform's default fast corner (FF,
+# 0.77 V). Its other settings are the platform's defaults (PLACE_DENSITY 0.60, the dont-use cells).
+ifeq ($(PLATFORM),asap7)
+export CORNER               = TC
+endif
